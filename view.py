@@ -29,10 +29,12 @@ def ViewInMap(price, lat, lon, center_lat, center_lon, area=None, take_log=True)
     m.drawcountries(color='gray')
     m.drawstates(color='gray')
 
-    # 2. scatter city data, with color reflecting population
+    # 2. scatter city data, with color reflecting prices
     # and size reflecting area
+    if take_log:
+        price = np.log10(price)
     m.scatter(lon, lat, latlon=True,
-              c=np.log10(population), s=area,
+              c=price, s=area,
               cmap='Reds', alpha=0.5)
     # 3. create colorbar and legend
     plt.colorbar(label=r'$\log_{10}({\rm population})$')
