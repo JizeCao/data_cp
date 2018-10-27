@@ -1,134 +1,81 @@
-#
-#author: Sachin Mehta
-#Project Description: This repository contains source code for semantically segmenting WSIs; however, it could be easily
-#                   adapted for other domains such as natural image segmentation
-# File Description: This file is used to check and pickle the data
-#==============================================================================
-
 import numpy as np
 import os.path
-from PIL import Image
-import cv2
 import pickle
+import pandas as pd
 
-class LoadData:
-    def __init__(self, data_dir, classes, diagClasses, cached_data_file, normVal=1.10):
+class loadData:
+    def __init__(self, data_dir, csv_path, sequ_length, allele): # sequ_length 9 or 10
+        self.csv_path = csv_path
         self.data_dir = data_dir
-        self.classes = classes
-        self.classWeights = np.ones(self.classes, dtype=np.float32)
-        self.normVal = normVal
-        self.mean = np.zeros(3, dtype=np.float32)
-        self.std = np.zeros(3, dtype=np.float32)
-        self.trainImList = list()
-        self.valImList = list()
-        self.trainAnnotList = list()
-        self.valAnnotList = list()
-        self.diagClassTrain = list()
-        self.diagClassVal = list()
-        self.diagClasses = diagClasses
-        self.diagWeights = np.ones(diagClasses, dtype=np.float32)
+        self.sequ_length = sequ_length
+        self.allele = allele
+        self.encode = list()
+        self.channel_encode = list()
+        self.label = list()
 
 
-        self.cached_data_file = cached_data_file
+    def readFlile(self):
+        label_file = pd.read_csv(self.csv_path)
+        for folder in os.listdir(self.data_dir):
+            if folder == self.allele:
+                for file in os.listdir(self.data_dir + os.sep + folder):
+                    if file.endswith('.csv') and len(file.split('.')[0]) == self.sequ_length:
+                        print(self.allele + ': ' + file.split('.')[0])
+                        encode_matrix = list()
+                        channel_matrix = [[], [], [], [], []]
+                        encode_file = pd.read_table(self.data_dir + os.sep + folder + os.sep + file, header=None).as_matrix()
+                        for (i, line) in enumerate(encode_file):
+                            encode_list = line[0].split(',')
+                            encode_list = [float(x) for x in encode_list]
+                            encode_matrix.append(encode_list)
+                            channel_matrix[i%5].append(encode_list)
+                        self.encode.append(np.asanyarray(encode_matrix))
+                        self.channel_encode.append(np.asanyarray(channel_matrix))
 
-    def compute_class_weights(self, histogram):
-        normHist = histogram / np.sum(histogram)
-        for i in range(self.classes):
-            self.classWeights[i] = 1 / (np.log(self.normVal + normHist[i]))
-
-    def compute_diag_weights(self, list):
-        histogram, _ = np.histogram(list, self.diagClasses)
-        normHist = histogram / np.sum(histogram)
-        for i in range(self.diagClasses):
-            self.diagWeights[i] = 1 / (np.log(self.normVal + normHist[i]))
-
-    def readFile(self, fileName, trainStg=False):
-
-        if trainStg == True:
-            global_hist = np.zeros(self.classes, dtype=np.float32)
-
-        no_files = 0
-        with open(self.data_dir + '/' + fileName, 'r') as textFile:
-            for line in textFile:
-                #line = textFile.read()
-                line_arr = line.split(',')
-                img_file = ((self.data_dir).strip() + '/' + line_arr[0].strip()).strip()
-                label_file = ((self.data_dir).strip() + '/' + line_arr[1].strip()).strip()
-                class_file = int(line_arr[2].strip())
-
-                label_img = cv2.imread(label_file, 0)
-                #label_img[label_img > 0] -= 1
-
-                unique_values = np.unique(label_img)
-                max_val = max(unique_values)
-                min_val = min(unique_values)
-
-                if trainStg == True:
-                    hist = np.histogram(label_img, self.classes)
-                    global_hist += hist[0]
-
-                    rgb_img = cv2.imread(img_file)
-
-                    #rgb_img = rgb_img.transpose((2,0,1)) # convert from W x H X C to C X W X H
-                    self.mean[0] += np.mean(rgb_img[:,:,0])
-                    self.mean[1] += np.mean(rgb_img[:, :, 1])
-                    self.mean[2] += np.mean(rgb_img[:, :, 2])
-
-                    self.std[0] += np.std(rgb_img[:, :, 0])
-                    self.std[1] += np.std(rgb_img[:, :, 1])
-                    self.std[2] += np.std(rgb_img[:, :, 2])
-
-                    self.trainImList.append(img_file)
-                    self.trainAnnotList.append(label_file)
-                    self.diagClassTrain.append(class_file)
-                else:
-                    self.valImList.append(img_file)
-                    self.valAnnotList.append(label_file)
-                    self.diagClassVal.append(class_file)
-
-                if max_val > (self.classes - 1) or min_val < 0:
-                    print('Some problem with labels. Please check.')
-                    print('Label Image ID: ' + label_file)
-                    print(unique_values)
-                    exit()
-                no_files += 1
-
-        if trainStg == True:
-            # divide the mean and std values by the sample space size
-            self.mean /= no_files
-            self.std /= no_files
-
-            #compute the class imbalance information
-            self.compute_class_weights(global_hist)
-            self.compute_diag_weights(self.diagClassTrain)
-            print(self.mean, no_files)
+                        csv_allele = allele.split('.')[0] + '*' + allele.split('.')[1].split('_')[0] + ':' + allele.split('.')[1].split('_')[1]
+                        label = label_file.loc[(label_file['sequence'] == file.split('.')[0]) & (label_file['mhc'] == csv_allele)]['meas'].values.item()
+                        self.label.append(label)
         return 0
 
     def processData(self):
-        print('Processing training data')
-        return_val = self.readFile('train.txt', True)
+        if not os.path.exists('data' + os.sep + 'pickle_9'):
+            os.mkdir('data' + os.sep + 'pickle_9')
+        if not os.path.exists('data' + os.sep + 'pickle_10'):
+            os.mkdir('data' + os.sep + 'pickle_10')
+        return_val = self.readFlile()
 
-        print('Processing validation data')
-        return_val1 = self.readFile('val.txt')
+        if return_val == 0:
+            print('Pickling data')
 
-        print('Pickling data')
-        if return_val ==0 and return_val1 ==0:
             data_dict = dict()
-            data_dict['trainIm'] = self.trainImList
-            data_dict['trainAnnot'] = self.trainAnnotList
-            data_dict['trainDiag'] = self.diagClassTrain
-            data_dict['valIm'] = self.valImList
-            data_dict['valAnnot'] = self.valAnnotList
-            data_dict['valDiag'] = self.diagClassVal
+            data_dict['allele'] = self.allele
+            data_dict['sequ_length'] = self.sequ_length
+            data_dict['encode'] = self.encode
+            data_dict['channel_encode'] = self.channel_encode
+            data_dict['label'] = self.label
 
-            data_dict['mean'] = self.mean
-            data_dict['std'] = self.std
-            data_dict['classWeights'] = self.classWeights
-            data_dict['diagClassWeights'] = self.diagWeights
-
-            pickle.dump(data_dict, open(self.cached_data_file, "wb"))
+            if self.sequ_length == 9:
+                pickle.dump(data_dict, open('data' + os.sep + 'pickle_9' + os.sep + self.allele + '.p', "wb"))
+            elif self.sequ_length == 10:
+                pickle.dump(data_dict, open('data' + os.sep + 'pickle_10' + os.sep + self.allele + '.p', "wb"))
+            else:
+                print('Invalid sequence length!!')
             return data_dict
         return None
+
+
+
+interest_allele = ['HLA-A.02_01','HLA-A.03_01']
+#interest_allele = ['HLA-A.02_01','HLA-A.03_01','HLA-A.11_01','HLA-A.11_01','HLA-A.02_03','HLA-B.15_01','HLA-A.31_01','HLA-A.01_01','HLA-B.07_02','HLA-A.26_01',
+                   #'HLA-A.02_06','HLA-A.68_02','HLA-B.08_01','HLA-B.58_01','HLA-B.40_01','HLA-B.27_05','HLA-A.30_01','HLA-A.69_01','HLA-B.57_01','HLA-B.35_01',
+                   #'HLA-A.02_02','HLA-A.24_02','HLA-B.18_01','HLA-B.51_01','HLA-A.29_02','HLA-A.68_01','HLA-A.33_01','HLA-A.23_01']
+for allele in interest_allele:
+    loadData("./data/encoding", "./data/iedb.csv", 9, allele).processData()
+    loadData("./data/encoding", "./data/iedb.csv", 10, allele).processData()
+
+test = pickle.load(open('data/pickle_9/HLA-A.03_01.p', "rb"))
+print(test['label'])
+
 
 
 
